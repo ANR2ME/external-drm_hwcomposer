@@ -482,6 +482,7 @@ int GLWorkerCompositor::Init() {
   }
 
   egl_extensions = eglQueryString(egl_display_, EGL_EXTENSIONS);
+  supports_explicit_sync_ = true;
 
   // These extensions are all technically required but not always reported due
   // to meta EGL filtering them out.
@@ -491,8 +492,10 @@ int GLWorkerCompositor::Init() {
   if (!HasExtension("EGL_ANDROID_image_native_buffer", egl_extensions))
     ALOGW("EGL_ANDROID_image_native_buffer extension not supported");
 
-  if (!HasExtension("EGL_ANDROID_native_fence_sync", egl_extensions))
+  if (!HasExtension("EGL_ANDROID_native_fence_sync", egl_extensions)) {
+    supports_explicit_sync_ = false;
     ALOGW("EGL_ANDROID_native_fence_sync extension not supported");
+  }
 
   if (!eglChooseConfig(egl_display_, config_attribs, &egl_config, 1,
                        &num_configs)) {
@@ -590,7 +593,7 @@ int GLWorkerCompositor::Composite(DrmHwcLayer *layers,
                                   &layer->buffer, importer,
 				  &layer_textures.back());
 
-    if (!ret) {
+    if (!ret && supports_explicit_sync_) {
       ret = EGLFenceWait(egl_display_, layer->acquire_fence.Release());
     }
     if (ret) {

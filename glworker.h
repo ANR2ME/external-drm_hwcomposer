@@ -73,6 +73,7 @@ class GLWorkerCompositor {
 
   EGLDisplay egl_display_;
   EGLContext egl_ctx_;
+  bool supports_explicit_sync_;
 
   std::vector<AutoGLProgram> blend_programs_;
   AutoGLBuffer vertex_buffer_;
