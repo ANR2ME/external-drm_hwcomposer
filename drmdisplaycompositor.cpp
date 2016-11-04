@@ -589,6 +589,8 @@ int DrmDisplayCompositor::CommitFrame(DrmDisplayComposition *display_comp,
         rotation |= 1 << DRM_ROTATE_180;
       else if (layer.transform & DrmHwcTransform::kRotate270)
         rotation |= 1 << DRM_ROTATE_270;
+      if (!rotation)
+        rotation |= 1 << DRM_ROTATE_0;
 
       if (fence_fd != -1) {
         int prop_id = plane->in_fence_fd_property().id();
@@ -618,7 +620,7 @@ int DrmDisplayCompositor::CommitFrame(DrmDisplayComposition *display_comp,
     }
 
     // TODO: Once we have atomic test, this should fall back to GL
-    if (rotation && plane->rotation_property().id() == 0) {
+    if ((rotation != 1 << DRM_ROTATE_0) && plane->rotation_property().id() == 0) {
       ALOGE("Rotation is not supported on plane %d", plane->id());
       ret = -EINVAL;
       break;
