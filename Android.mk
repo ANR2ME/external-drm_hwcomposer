@@ -53,6 +53,7 @@ LOCAL_SRC_FILES := \
 	drmplane.cpp \
 	drmproperty.cpp \
 	glworker.cpp \
+	headlesscompositor.cpp \
 	hwcomposer.cpp \
         platform.cpp \
         platformdrmgeneric.cpp \

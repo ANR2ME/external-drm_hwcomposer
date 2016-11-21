@@ -23,6 +23,7 @@
 #include "platform.h"
 #include "virtualcompositorworker.h"
 #include "vsyncworker.h"
+#include "headlesscompositor.h"
 
 #include <stdlib.h>
 
@@ -134,6 +135,7 @@ class DrmHotplugHandler : public DrmEventHandler {
   }
 
   void HandleEvent(uint64_t timestamp_us) {
+    bool headless_mode = true;
     for (auto &conn : drm_->connectors()) {
       drmModeConnection old_state = conn->state();
 
@@ -141,14 +143,19 @@ class DrmHotplugHandler : public DrmEventHandler {
 
       drmModeConnection cur_state = conn->state();
 
-      if (cur_state == old_state)
+      if (cur_state == old_state) {
+        if (cur_state == DRM_MODE_CONNECTED)
+          headless_mode = false;
+
         continue;
+      }
 
       ALOGI("%s event @%" PRIu64 " for connector %u\n",
             cur_state == DRM_MODE_CONNECTED ? "Plug" : "Unplug", timestamp_us,
             conn->id());
 
       if (cur_state == DRM_MODE_CONNECTED) {
+        headless_mode = false;
         // Take the first one, then look for the preferred
         DrmMode mode = *(conn->modes().begin());
         for (auto &m : conn->modes()) {
@@ -175,11 +182,22 @@ class DrmHotplugHandler : public DrmEventHandler {
       procs_->hotplug(procs_, conn->display(),
                       cur_state == DRM_MODE_CONNECTED ? 1 : 0);
     }
+
+    headless = headless_mode;
+  }
+
+  bool headless_mode() {
+    return headless;
+  }
+
+  void SetHeadlessMode(bool headless_mode) {
+    headless = headless_mode;
   }
 
  private:
   DrmResources *drm_ = NULL;
   const struct hwc_procs *procs_ = NULL;
+  bool headless;
 };
 
 struct hwc_context_t {
@@ -387,6 +405,9 @@ int DrmHwcLayer::InitFromHwcLayer(hwc_layer_1_t *sf_layer, Importer *importer,
 static void hwc_dump(struct hwc_composer_device_1 *dev, char *buff,
                      int buff_len) {
   struct hwc_context_t *ctx = (struct hwc_context_t *)&dev->common;
+  if (ctx->hotplug_handler.headless_mode())
+    return hwc_headless_dump(dev, buff, buff_len);
+
   std::ostringstream out;
 
   ctx->drm.compositor()->Dump(&out);
@@ -403,6 +424,8 @@ static bool hwc_skip_layer(const std::pair<int, int> &indices, int i) {
 static int hwc_prepare(hwc_composer_device_1_t *dev, size_t num_displays,
                        hwc_display_contents_1_t **display_contents) {
   struct hwc_context_t *ctx = (struct hwc_context_t *)&dev->common;
+  if (ctx->hotplug_handler.headless_mode())
+    return hwc_headless_prepare(dev, num_displays, display_contents);
 
   for (int i = 0; i < (int)num_displays; ++i) {
     if (!display_contents[i])
@@ -490,6 +513,9 @@ static int hwc_set(hwc_composer_device_1_t *dev, size_t num_displays,
                    hwc_display_contents_1_t **sf_display_contents) {
   ATRACE_CALL();
   struct hwc_context_t *ctx = (struct hwc_context_t *)&dev->common;
+  if (ctx->hotplug_handler.headless_mode())
+    return hwc_headless_set(dev, num_displays, sf_display_contents);
+
   int ret = 0;
 
   std::vector<CheckedOutputFd> checked_output_fences;
@@ -659,6 +685,7 @@ static int hwc_event_control(struct hwc_composer_device_1 *dev, int display,
     return -EINVAL;
 
   struct hwc_context_t *ctx = (struct hwc_context_t *)&dev->common;
+
   hwc_drm_display_t *hd = &ctx->displays[display];
   return hd->vsync_worker.VSyncControl(enabled);
 }
@@ -666,6 +693,8 @@ static int hwc_event_control(struct hwc_composer_device_1 *dev, int display,
 static int hwc_set_power_mode(struct hwc_composer_device_1 *dev, int display,
                               int mode) {
   struct hwc_context_t *ctx = (struct hwc_context_t *)&dev->common;
+  if (ctx->hotplug_handler.headless_mode())
+    return hwc_headless_set_power_mode(dev, display, mode);
 
   uint64_t dpmsValue = 0;
   switch (mode) {
@@ -719,10 +748,10 @@ static void hwc_register_procs(struct hwc_composer_device_1 *dev,
 static int hwc_get_display_configs(struct hwc_composer_device_1 *dev,
                                    int display, uint32_t *configs,
                                    size_t *num_configs) {
-  if (!*num_configs)
-    return 0;
-
   struct hwc_context_t *ctx = (struct hwc_context_t *)&dev->common;
+  if (ctx->hotplug_handler.headless_mode())
+    return hwc_get_headless_display_configs(dev, display, configs, num_configs);
+
   hwc_drm_display_t *hd = &ctx->displays[display];
   hd->config_ids.clear();
 
@@ -754,6 +783,10 @@ static int hwc_get_display_attributes(struct hwc_composer_device_1 *dev,
                                       const uint32_t *attributes,
                                       int32_t *values) {
   struct hwc_context_t *ctx = (struct hwc_context_t *)&dev->common;
+  if (ctx->hotplug_handler.headless_mode())
+    return hwc_get_headless_display_attributes(dev, display, config, attributes,
+                                               values);
+
   DrmConnector *c = ctx->drm.GetConnectorForDisplay(display);
   if (!c) {
     ALOGE("Failed to get DrmConnector for display %d", display);
@@ -801,6 +834,9 @@ static int hwc_get_display_attributes(struct hwc_composer_device_1 *dev,
 static int hwc_get_active_config(struct hwc_composer_device_1 *dev,
                                  int display) {
   struct hwc_context_t *ctx = (struct hwc_context_t *)&dev->common;
+  if (ctx->hotplug_handler.headless_mode())
+    return hwc_get_headless_active_config(dev, display);
+
   DrmConnector *c = ctx->drm.GetConnectorForDisplay(display);
   if (!c) {
     ALOGE("Failed to get DrmConnector for display %d", display);
@@ -819,6 +855,9 @@ static int hwc_get_active_config(struct hwc_composer_device_1 *dev,
 static int hwc_set_active_config(struct hwc_composer_device_1 *dev, int display,
                                  int index) {
   struct hwc_context_t *ctx = (struct hwc_context_t *)&dev->common;
+  if (ctx->hotplug_handler.headless_mode())
+    return hwc_set_headless_active_config(dev, display, index);
+
   hwc_drm_display_t *hd = &ctx->displays[display];
   if (index >= (int)hd->config_ids.size()) {
     ALOGE("Invalid config index %d passed in", index);
@@ -941,9 +980,18 @@ static int hwc_device_open(const struct hw_module_t *module, const char *name,
     return -ENOMEM;
   }
 
+  bool headless = true;
+
   int ret = ctx->drm.Init();
   if (ret) {
-    ALOGE("Can't initialize Drm object %d", ret);
+    ALOGE("Can't initialize Drm object. %d", ret);
+    ALOGE("Starting in headless mode. %d", ret);
+    headless = true;
+  }
+
+  ret = hwc_enumerate_displays(ctx.get());
+  if (ret) {
+    ALOGE("Failed to enumerate displays: %s", strerror(ret));
     return ret;
   }
 
@@ -966,11 +1014,15 @@ static int hwc_device_open(const struct hw_module_t *module, const char *name,
     return ret;
   }
 
-  ret = hwc_enumerate_displays(ctx.get());
-  if (ret) {
-    ALOGE("Failed to enumerate displays: %s", strerror(ret));
-    return ret;
+  const std::vector<std::unique_ptr<DrmConnector>> & connectors = ctx->drm.connectors();
+  for (auto i = connectors.begin(); i != connectors.end(); i++ ) {
+    if (i->get()->state() == DRM_MODE_CONNECTED) {
+        headless = false;
+        break;
+    }
   }
+
+  ctx->hotplug_handler.SetHeadlessMode(headless);
 
   ctx->device.common.tag = HARDWARE_DEVICE_TAG;
   ctx->device.common.version = HWC_DEVICE_API_VERSION_1_4;
