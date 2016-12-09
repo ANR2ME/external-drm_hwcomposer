@@ -72,6 +72,10 @@ class DrmHwcTwo : public hwc2_device_t {
       acquire_fence_.Set(dup(acquire_fence));
     }
 
+    void set_release_fence(int release_fence) {
+      release_fence_.Set(dup(release_fence));
+    }
+
     int release_fence() {
       return release_fence_.get();
     }
@@ -176,6 +180,8 @@ class DrmHwcTwo : public hwc2_device_t {
     HWC2::Error SetClientTarget(buffer_handle_t target, int32_t acquire_fence,
                                 int32_t dataspace, hwc_region_t damage);
     HWC2::Error SetColorMode(int32_t mode);
+    HWC2::Error SetVirtualResolution(int32_t width, int32_t height);
+    HWC2::Error SetVirtualFormat(int32_t *format);
     HWC2::Error SetColorTransform(const float *matrix, int32_t hint);
     HWC2::Error SetOutputBuffer(buffer_handle_t buffer, int32_t release_fence);
     HWC2::Error SetPowerMode(int32_t mode);
@@ -211,6 +217,12 @@ class DrmHwcTwo : public hwc2_device_t {
     int32_t color_mode_;
 
     uint32_t frame_no_ = 0;
+
+    // Track the virtual display resolution and format, which cannot query through DRM mode.
+    int32_t vir_width = 0;
+    int32_t vir_height = 0;
+    int32_t vir_format = HAL_PIXEL_FORMAT_RGBA_8888;
+
   };
 
   static DrmHwcTwo *toDrmHwcTwo(hwc2_device_t *dev) {

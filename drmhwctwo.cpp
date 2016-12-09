@@ -112,13 +112,31 @@ static inline void supported(char const *func) {
 HWC2::Error DrmHwcTwo::CreateVirtualDisplay(uint32_t width, uint32_t height,
                                             int32_t *format,
                                             hwc2_display_t *display) {
-  // TODO: Implement virtual display
-  return unsupported(__func__, width, height, display);
+
+  //initialize the virtural display
+  displays_.emplace(std::piecewise_construct,
+    std::forward_as_tuple(HWC_DISPLAY_VIRTUAL),
+    std::forward_as_tuple(&drm_, importer_, gralloc_,
+    HWC_DISPLAY_VIRTUAL,
+    HWC2::DisplayType::Virtual));
+
+  *display = (hwc2_display_t)HWC_DISPLAY_VIRTUAL;
+  HwcDisplay &display_ = displays_.at(*display);
+
+  display_.SetVirtualResolution(width, height);
+  display_.SetVirtualFormat(format);
+
+  return HWC2::Error::None;
+
 }
 
 HWC2::Error DrmHwcTwo::DestroyVirtualDisplay(hwc2_display_t display) {
-  // TODO: Implement virtual display
-  return unsupported(__func__, display);
+  if(display != (hwc2_display_t)HWC_DISPLAY_VIRTUAL){
+    ALOGE("Not Virtual Display Type in DestroyVirtualDisplay");
+    return HWC2::Error::BadDisplay;
+  }
+  displays_.erase(display);
+  return HWC2::Error::None;
 }
 
 void DrmHwcTwo::Dump(uint32_t *size, char *buffer) {
@@ -127,9 +145,8 @@ void DrmHwcTwo::Dump(uint32_t *size, char *buffer) {
 }
 
 uint32_t DrmHwcTwo::GetMaxVirtualDisplayCount() {
-  // TODO: Implement virtual display
-  unsupported(__func__);
-  return 0;
+  // So far only single virtual display is required
+  return 1;
 }
 
 HWC2::Error DrmHwcTwo::RegisterCallback(int32_t descriptor,
@@ -236,6 +253,10 @@ HWC2::Error DrmHwcTwo::HwcDisplay::Init(std::vector<DrmPlane *> *planes) {
 HWC2::Error DrmHwcTwo::HwcDisplay::RegisterVsyncCallback(
     hwc2_callback_data_t data, hwc2_function_pointer_t func) {
   supported(__func__);
+  if (type_ == HWC2::DisplayType::Virtual){
+    ALOGD("Virtual Display skip RegisterVsyncCallback");
+    return HWC2::Error::BadDisplay;
+  }
   auto callback = std::make_shared<DrmVsyncCallback>(data, func);
   int ret = vsync_worker_.RegisterCallback(std::move(callback));
   if (ret) {
@@ -492,6 +513,13 @@ void DrmHwcTwo::HwcDisplay::AddFenceToRetireFence(int fd) {
 
 HWC2::Error DrmHwcTwo::HwcDisplay::PresentDisplay(int32_t *retire_fence) {
   supported(__func__);
+
+  if (type_ == HWC2::DisplayType::Virtual){
+    ALOGD("Virtual display skip present!");
+    *retire_fence = -1;
+    return HWC2::Error::None;
+  }
+
   std::vector<DrmCompositionDisplayLayersMap> layers_map;
   layers_map.emplace_back();
   DrmCompositionDisplayLayersMap &map = layers_map.back();
@@ -655,8 +683,12 @@ HWC2::Error DrmHwcTwo::HwcDisplay::SetColorTransform(const float *matrix,
 HWC2::Error DrmHwcTwo::HwcDisplay::SetOutputBuffer(buffer_handle_t buffer,
                                                    int32_t release_fence) {
   supported(__func__);
-  // TODO: Need virtual display support
-  return unsupported(__func__, buffer, release_fence);
+
+  UniqueFd uf(release_fence);
+
+  client_layer_.set_buffer(buffer);
+  client_layer_.set_release_fence(uf.get());
+  return HWC2::Error::None;
 }
 
 HWC2::Error DrmHwcTwo::HwcDisplay::SetPowerMode(int32_t mode_in) {
@@ -698,9 +730,20 @@ HWC2::Error DrmHwcTwo::HwcDisplay::ValidateDisplay(uint32_t *num_types,
   supported(__func__);
   *num_types = 0;
   *num_requests = 0;
+  if(type_ ==  HWC2::DisplayType::Virtual){
+        ALOGV("Set the layer compoistion type to Client for virtual display!");
+	for (std::pair<const hwc2_layer_t, DrmHwcTwo::HwcLayer> &l : layers_) {
+	  DrmHwcTwo::HwcLayer &layer = l.second;
+	  layer.set_validated_type(HWC2::Composition::Client);
+          ++*num_types;
+	}
+	return HWC2::Error::None;
+  }
+
   for (std::pair<const hwc2_layer_t, DrmHwcTwo::HwcLayer> &l : layers_) {
     DrmHwcTwo::HwcLayer &layer = l.second;
     switch (layer.sf_type()) {
+      ALOGD("Primary Layer buffer 0x%x, type :%d", layer.buffer(), layer.sf_type());
       case HWC2::Composition::SolidColor:
       case HWC2::Composition::Sideband:
         layer.set_validated_type(HWC2::Composition::Client);
@@ -713,6 +756,24 @@ HWC2::Error DrmHwcTwo::HwcDisplay::ValidateDisplay(uint32_t *num_types,
   }
   return HWC2::Error::None;
 }
+
+HWC2::Error DrmHwcTwo::HwcDisplay::SetVirtualResolution(int32_t width, int32_t height) {
+  supported(__func__);
+  vir_width = width;
+  vir_height = height;
+  return HWC2::Error::None;
+}
+
+HWC2::Error DrmHwcTwo::HwcDisplay::SetVirtualFormat(int32_t *format) {
+  supported(__func__);
+  if(*format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED){
+       // fallback to RGBA_8888, align with framework requirement
+       *format = HAL_PIXEL_FORMAT_RGBA_8888;
+  }
+  vir_format = *format;
+  return HWC2::Error::None;
+}
+
 
 HWC2::Error DrmHwcTwo::HwcLayer::SetCursorPosition(int32_t x, int32_t y) {
   supported(__func__);
