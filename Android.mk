@@ -40,9 +40,6 @@ LOCAL_C_INCLUDES := \
 LOCAL_SRC_FILES := \
 	autolock.cpp \
 	drmresources.cpp \
-	drmcomposition.cpp \
-	drmcompositor.cpp \
-	drmcompositorworker.cpp \
 	drmconnector.cpp \
 	drmcrtc.cpp \
 	drmdisplaycomposition.cpp \
