@@ -72,11 +72,13 @@ int NvImporter::Init() {
   return 0;
 }
 
-
-EGLImageKHR NvImporter::ImportImage(EGLDisplay egl_display, buffer_handle_t handle) {
-  return eglCreateImageKHR(
-      egl_display, EGL_NO_CONTEXT, EGL_NATIVE_HANDLE_ANDROID_NVX,
-      (EGLClientBuffer)handle, NULL /* no attribs */);
+EGLImageKHR NvImporter::ImportImage(EGLDisplay egl_display,
+                                    DrmHwcBuffer *buffer,
+                                    buffer_handle_t handle) {
+  (void)buffer;
+  return eglCreateImageKHR(egl_display, EGL_NO_CONTEXT,
+                           EGL_NATIVE_HANDLE_ANDROID_NVX,
+                           (EGLClientBuffer)handle, NULL /* no attribs */);
 }
 
 int NvImporter::ImportBuffer(buffer_handle_t handle, hwc_drm_bo_t *bo) {
