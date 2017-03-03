@@ -196,6 +196,7 @@ class DrmHwcTwo : public hwc2_device_t {
 
     std::vector<DrmPlane *> primary_planes_;
     std::vector<DrmPlane *> overlay_planes_;
+    std::vector<DrmPlane *> cursor_planes_;
 
     VSyncWorker vsync_worker_;
     DrmConnector *connector_ = NULL;

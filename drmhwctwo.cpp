@@ -195,6 +195,8 @@ HWC2::Error DrmHwcTwo::HwcDisplay::Init(std::vector<DrmPlane *> *planes) {
       primary_planes_.push_back(plane);
     else if (use_overlay_planes && (plane)->type() == DRM_PLANE_TYPE_OVERLAY)
       overlay_planes_.push_back(plane);
+    else if (plane->type() == DRM_PLANE_TYPE_CURSOR)
+      cursor_planes_.push_back(plane);
   }
 
   crtc_ = drm_->GetCrtcForDisplay(display);
@@ -544,8 +546,9 @@ HWC2::Error DrmHwcTwo::HwcDisplay::PresentDisplay(int32_t *retire_fence) {
 
   std::vector<DrmPlane *> primary_planes(primary_planes_);
   std::vector<DrmPlane *> overlay_planes(overlay_planes_);
+  std::vector<DrmPlane *> cursor_planes(cursor_planes_);
   ret = composition->Plan(compositor_.squash_state(), &primary_planes,
-                         &overlay_planes);
+                         &overlay_planes, &cursor_planes);
   if (ret) {
     ALOGE("Failed to plan the composition ret=%d", ret);
     return HWC2::Error::BadConfig;
@@ -559,6 +562,10 @@ HWC2::Error DrmHwcTwo::HwcDisplay::PresentDisplay(int32_t *retire_fence) {
   for (auto i = overlay_planes.begin(); i != overlay_planes.end();) {
     composition->AddPlaneDisable(*i);
     i = overlay_planes.erase(i);
+  }
+  for (auto i = cursor_planes.begin(); i != cursor_planes.end();) {
+    composition->AddPlaneDisable(*i);
+    i = cursor_planes.erase(i);
   }
 
   AddFenceToRetireFence(composition->take_out_fence());
