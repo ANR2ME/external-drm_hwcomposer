@@ -58,6 +58,16 @@ int DrmHwcBuffer::ImportBuffer(buffer_handle_t handle, Importer *importer) {
   return 0;
 }
 
+int DrmHwcBuffer::CreateFrameBuffer(uint32_t plane_type) {
+  if (importer_ == NULL) {
+    ALOGE("Access of non-existent BO");
+    exit(1);
+    return -1;
+  }
+
+  return importer_->CreateFrameBuffer(&bo_, plane_type);
+}
+
 static native_handle_t *dup_buffer_handle(buffer_handle_t handle) {
   native_handle_t *new_handle =
       native_handle_create(handle->numFds, handle->numInts);
